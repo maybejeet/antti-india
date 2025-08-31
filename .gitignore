@@ -1,0 +1,68 @@
+# Environment variables (NEVER commit API keys!)
+.env
+.env.local
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+temp_*.mp3
+temp_*.mp4
+temp_*.wav
+temp_video_audio.mp3
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Model files (if you download large models locally)
+models/
+*.pkl
+*.joblib
+
+# Data files that might contain sensitive info
+*.csv
+!social_feed.csv
+!live_feed.csv
