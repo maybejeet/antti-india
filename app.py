@@ -1,9 +1,35 @@
 import streamlit as st
 import requests
 import pandas as pd
+from functools import lru_cache
+import time
 
 st.set_page_config(page_title="Team CodeBlooded", layout="wide")
+
+# Add performance optimization
+if 'initialized' not in st.session_state:
+    st.session_state.initialized = True
+    with st.spinner("🚀 Loading Anti-India Detection System..."):
+        time.sleep(0.5)  # Brief loading animation
+
 st.title("🚀 Anti-India Detection System")
+
+# Cache API status checks to avoid repeated calls
+@st.cache_data(ttl=60)  # Cache for 60 seconds
+def check_gemini_status():
+    try:
+        gemini_status = requests.get("http://127.0.0.1:8000/gemini-status", timeout=5)
+        return gemini_status.json()
+    except:
+        return {"status": "error", "message": "Cannot connect to backend"}
+
+@st.cache_data(ttl=60)  # Cache for 60 seconds
+def check_twitter_status():
+    try:
+        status_res = requests.get("http://127.0.0.1:8000/twitter-status", timeout=5)
+        return status_res.json()
+    except:
+        return {"status": "error", "message": "Cannot connect to backend"}
 
 # ---------------- Tabs ----------------
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
@@ -14,36 +40,353 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
 with tab1:
     txt = st.text_area("Enter text to analyze")
     if st.button("Analyze Text"):
-        res = requests.post("http://127.0.0.1:8000/analyze-text", json={"text": txt})
-        st.json(res.json())
+        if not txt.strip():
+            st.error("Please enter some text to analyze")
+        else:
+            try:
+                res = requests.post("http://127.0.0.1:8000/analyze-text", json={"text": txt})
+                st.json(res.json())
+            except requests.exceptions.ConnectionError:
+                st.error("❌ Cannot connect to backend server")
+                st.info("🛠️ Please start the backend server first: `python3 backend.py`")
 
 # ---------------- IMAGE ----------------
 with tab2:
-    f = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
+    st.subheader("🖼️ Gemini AI Image Analysis")
+    
+    # Check Gemini API status with caching
+    status_data = check_gemini_status()
+    
+    if status_data["status"] == "connected":
+        st.success("✅ Gemini AI Vision API Connected")
+    elif status_data["status"] == "error":
+        st.error("❌ Cannot connect to backend")
+    else:
+        st.error(f"❌ Gemini API Status: {status_data['message']}")
+        st.info("Please check your GEMINI_API_KEY in .env file")
+    
+    # Image upload
+    f = st.file_uploader(
+        "Upload an image for analysis", 
+        type=["png", "jpg", "jpeg", "gif", "bmp"],
+        help="Upload images containing text, flags, symbols, or any visual content related to India"
+    )
+    
     if f:
-        st.image(f, use_column_width=True)
-        f.seek(0)  # reset pointer before sending
-        res = requests.post("http://127.0.0.1:8000/analyze-image", files={"file": f})
-        st.json(res.json())
+        # Display image
+        st.image(f, use_column_width=True, caption=f"Analyzing: {f.name}")
+        
+        # Analyze button - always show when image is uploaded
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            analyze_btn = st.button("🔍 Analyze Image with Gemini AI", type="primary", key="analyze_image_btn")
+        
+        if analyze_btn:
+            with st.spinner("Analyzing image with Gemini AI Vision..."):
+                try:
+                    f.seek(0)  # reset pointer before sending
+                    res = requests.post(
+                        "http://127.0.0.1:8000/analyze-image", 
+                        files={"file": f},
+                        timeout=60
+                    )
+                    
+                    if res.status_code == 200:
+                        result = res.json()
+                        
+                        # Display main result
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            classification = result.get('classification', result.get('label', 'Unknown'))
+                            if classification == 'ANTI-INDIA':
+                                st.error(f"🚨 {classification}")
+                            elif classification == 'SUSPICIOUS':
+                                st.warning(f"⚠️ {classification}")
+                            else:
+                                st.success(f"✅ {classification}")
+                        
+                        with col2:
+                            toxicity = result.get('toxicity_percent', result.get('confidence_score', 0))
+                            st.metric("Risk Score", f"{toxicity}%")
+                        
+                        with col3:
+                            method = result.get('method', 'Unknown')
+                            st.info(f"Method: {method}")
+                        
+                        # Show extracted text if available
+                        if result.get('extracted_text'):
+                            st.subheader("📝 Text Found in Image:")
+                            st.text_area("Extracted Text:", result['extracted_text'], height=100)
+                        
+                        # Show visual elements detected
+                        if result.get('visual_elements'):
+                            st.subheader("👁️ Visual Elements Detected:")
+                            for element in result['visual_elements']:
+                                st.write(f"• {element}")
+                        
+                        # Show detailed reasoning
+                        if result.get('reasoning'):
+                            st.subheader("🧠 AI Analysis Reasoning:")
+                            st.write(result['reasoning'])
+                        
+                        # Show risk factors if any
+                        if result.get('risk_factors'):
+                            st.subheader("⚠️ Risk Factors Identified:")
+                            for factor in result['risk_factors']:
+                                st.write(f"• {factor}")
+                        
+                        # Show language detected
+                        if result.get('language_detected') and result['language_detected'] != 'unknown':
+                            st.write(f"🌍 **Language Detected:** {result['language_detected']}")
+                        
+                        # Image info
+                        if result.get('image_info'):
+                            with st.expander("📊 Image Information"):
+                                info = result['image_info']
+                                st.write(f"**Format:** {info.get('format', 'Unknown')}")
+                                st.write(f"**Size:** {info.get('width', 0)} x {info.get('height', 0)} pixels")
+                                st.write(f"**File Size:** {info.get('file_size', 0):,} bytes")
+                        
+                        # Full JSON result (collapsible)
+                        with st.expander("📊 Raw Analysis Data"):
+                            st.json(result)
+                    
+                    else:
+                        st.error(f"Error: {res.status_code} - {res.text}")
+                        
+                except requests.exceptions.Timeout:
+                    st.error("⏰ Analysis timed out. The image might be too large or complex.")
+                except requests.exceptions.ConnectionError:
+                    st.error("❌ Cannot connect to backend. Make sure the server is running.")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+    
+    # URL analysis option
+    st.markdown("---")
+    st.subheader("🌐 Analyze Image from URL")
+    
+    image_url = st.text_input(
+        "Image URL:",
+        placeholder="https://example.com/image.jpg",
+        help="Enter a direct URL to an image file"
+    )
+    
+    if image_url and st.button("🔍 Analyze URL Image"):
+        with st.spinner("Downloading and analyzing image..."):
+            try:
+                res = requests.post(
+                    "http://127.0.0.1:8000/analyze-image-url",
+                    params={"image_url": image_url},
+                    timeout=60
+                )
+                
+                if res.status_code == 200:
+                    result = res.json()
+                    st.success("✅ Image analyzed successfully!")
+                    
+                    # Display results similar to file upload
+                    classification = result.get('classification', result.get('label', 'Unknown'))
+                    toxicity = result.get('toxicity_percent', result.get('confidence_score', 0))
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Classification", classification)
+                    with col2:
+                        st.metric("Risk Score", f"{toxicity}%")
+                    
+                    if result.get('extracted_text'):
+                        st.write(f"**Extracted Text:** {result['extracted_text']}")
+                    
+                    st.json(result)
+                else:
+                    st.error(f"Error: {res.status_code} - {res.text}")
+                    
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
 
 # ---------------- AUDIO ----------------
 with tab3:
-    a = st.file_uploader("Upload an audio file", type=["mp3", "wav"])
+    st.subheader("🎙️ Audio Analysis")
+    st.write("Upload audio files to extract speech and analyze for anti-India content")
+    
+    a = st.file_uploader(
+        "Upload an audio file", 
+        type=["mp3", "wav", "m4a", "ogg"],
+        help="Supported formats: MP3, WAV, M4A, OGG"
+    )
+    
     if a:
-        with open("temp_audio.mp3", "wb") as out:
-            out.write(a.read())
-        res = requests.post("http://127.0.0.1:8000/analyze-audio", files={"file": open("temp_audio.mp3", "rb")})
-        st.json(res.json())
+        # Display audio info
+        st.audio(a, format='audio/mp3')
+        st.write(f"**File:** {a.name}")
+        st.write(f"**Size:** {len(a.getvalue()):,} bytes")
+        
+        # Analyze button
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            analyze_audio_btn = st.button("🎧 Analyze Audio", type="primary", key="analyze_audio_btn")
+        
+        if analyze_audio_btn:
+            with st.spinner("Transcribing audio and analyzing content..."):
+                try:
+                    # Save audio file temporarily
+                    with open("temp_audio.mp3", "wb") as out:
+                        out.write(a.getvalue())
+                    
+                    # Send to backend for analysis
+                    with open("temp_audio.mp3", "rb") as audio_file:
+                        res = requests.post(
+                            "http://127.0.0.1:8000/analyze-audio", 
+                            files={"file": audio_file},
+                            timeout=120
+                        )
+                    
+                    if res.status_code == 200:
+                        result = res.json()
+                        
+                        # Display main result
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            classification = result.get('label', 'Unknown')
+                            if classification == 'ANTI-INDIA':
+                                st.error(f"🚨 {classification}")
+                            elif classification == 'SUSPICIOUS':
+                                st.warning(f"⚠️ {classification}")
+                            else:
+                                st.success(f"✅ {classification}")
+                        
+                        with col2:
+                            toxicity = result.get('toxicity_percent', 0)
+                            st.metric("Risk Score", f"{toxicity}%")
+                        
+                        with col3:
+                            method = result.get('method', 'Speech-to-Text + Analysis')
+                            st.info(f"Method: {method}")
+                        
+                        # Show transcript if available
+                        if result.get('transcript'):
+                            st.subheader("📝 Audio Transcript:")
+                            st.text_area("Transcribed Text:", result['transcript'], height=150)
+                        
+                        # Show analysis details
+                        if result.get('matched_phrase'):
+                            st.warning(f"**Matched Phrase:** {result['matched_phrase']}")
+                        
+                        # Full JSON result (collapsible)
+                        with st.expander("📊 Raw Analysis Data"):
+                            st.json(result)
+                    
+                    else:
+                        st.error(f"Error: {res.status_code} - {res.text}")
+                        
+                except requests.exceptions.Timeout:
+                    st.error("⏰ Analysis timed out. The audio file might be too long or complex.")
+                except requests.exceptions.ConnectionError:
+                    st.error("❌ Cannot connect to backend. Make sure the server is running.")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
 
 # ---------------- VIDEO ----------------
 with tab4:
-    v = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov"])
+    st.subheader("🎥 Video Analysis")
+    st.write("Upload video files to extract audio, transcribe speech, and analyze for anti-India content")
+    
+    v = st.file_uploader(
+        "Upload a video file", 
+        type=["mp4", "avi", "mov", "mkv", "webm"],
+        help="Supported formats: MP4, AVI, MOV, MKV, WEBM"
+    )
+    
     if v:
+        # Display video info
         st.video(v)
-        with open("temp_video.mp4", "wb") as out:
-            out.write(v.read())
-        res = requests.post("http://127.0.0.1:8000/analyze-video", files={"file": open("temp_video.mp4", "rb")})
-        st.json(res.json())
+        st.write(f"**File:** {v.name}")
+        st.write(f"**Size:** {len(v.getvalue()):,} bytes")
+        
+        # Analyze button
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            analyze_video_btn = st.button("🎬 Analyze Video", type="primary", key="analyze_video_btn")
+        
+        if analyze_video_btn:
+            with st.spinner("Extracting audio, transcribing speech, and analyzing content..."):
+                try:
+                    # Save video file temporarily
+                    with open("temp_video.mp4", "wb") as out:
+                        out.write(v.getvalue())
+                    
+                    # Send to backend for analysis
+                    with open("temp_video.mp4", "rb") as video_file:
+                        res = requests.post(
+                            "http://127.0.0.1:8000/analyze-video", 
+                            files={"file": video_file},
+                            timeout=180  # 3 minutes timeout for video processing
+                        )
+                    
+                    if res.status_code == 200:
+                        result = res.json()
+                        
+                        # Display main result
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            classification = result.get('label', 'Unknown')
+                            if classification == 'ANTI-INDIA':
+                                st.error(f"🚨 {classification}")
+                            elif classification == 'SUSPICIOUS':
+                                st.warning(f"⚠️ {classification}")
+                            else:
+                                st.success(f"✅ {classification}")
+                        
+                        with col2:
+                            toxicity = result.get('toxicity_percent', 0)
+                            st.metric("Risk Score", f"{toxicity}%")
+                        
+                        with col3:
+                            method = result.get('method', 'Video-to-Audio + Speech-to-Text + Analysis')
+                            st.info(f"Method: {method}")
+                        
+                        # Show transcript if available
+                        if result.get('transcript'):
+                            st.subheader("📝 Video Audio Transcript:")
+                            st.text_area("Transcribed Speech:", result['transcript'], height=150)
+                        
+                        # Show analysis details
+                        if result.get('matched_phrase'):
+                            st.warning(f"**Matched Phrase:** {result['matched_phrase']}")
+                        
+                        # Video processing info
+                        st.info("🎥 **Processing:** Video → Audio Extraction → Speech Recognition → Text Analysis")
+                        
+                        # Full JSON result (collapsible)
+                        with st.expander("📊 Raw Analysis Data"):
+                            st.json(result)
+                    
+                    else:
+                        st.error(f"Error: {res.status_code} - {res.text}")
+                        
+                except requests.exceptions.Timeout:
+                    st.error("⏰ Analysis timed out. The video file might be too long or complex.")
+                except requests.exceptions.ConnectionError:
+                    st.error("❌ Cannot connect to backend. Make sure the server is running.")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+        
+        # Video analysis tips
+        with st.expander("💡 Video Analysis Tips"):
+            st.write("""
+            **How Video Analysis Works:**
+            1. 🎥 **Video Upload**: Your video file is processed
+            2. 🎵 **Audio Extraction**: Audio track is extracted from the video
+            3. 🎤 **Speech Recognition**: Audio is converted to text using Whisper AI
+            4. 🔍 **Text Analysis**: Transcribed text is analyzed for anti-India content
+            
+            **Best Results:**
+            - Clear audio with minimal background noise
+            - Videos with spoken content in supported languages
+            - File size under 100MB for faster processing
+            
+            **Supported Languages:** Hindi, English, Bengali, Urdu, and more
+            """)
 
 # ---------------- SOCIAL FEED ----------------
 with tab5:
@@ -94,18 +437,16 @@ with tab6:
 with tab7:
     st.subheader("🐦 Twitter Live Feed Analysis")
     
-    # Check Twitter API status first
-    try:
-        status_res = requests.get("http://127.0.0.1:8000/twitter-status")
-        status_data = status_res.json()
-        
-        if status_data["status"] == "connected":
-            st.success("✅ Twitter API Connected")
-        else:
-            st.error(f"❌ Twitter API Status: {status_data['message']}")
-            st.info("Please check your .env file and Twitter API credentials")
-    except:
+    # Check Twitter API status with caching
+    status_data = check_twitter_status()
+    
+    if status_data["status"] == "connected":
+        st.success("✅ Twitter API Connected")
+    elif status_data["status"] == "error":
         st.error("❌ Cannot connect to backend. Make sure the backend server is running.")
+    else:
+        st.error(f"❌ Twitter API Status: {status_data['message']}")
+        st.info("Please check your .env file and Twitter API credentials")
     
     # Twitter search options
     search_type = st.selectbox(

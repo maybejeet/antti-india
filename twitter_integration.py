@@ -92,6 +92,9 @@ class TwitterAPIClient:
         """
         if count is None:
             count = self.default_tweet_count
+        
+        # Ensure minimum count for Twitter API
+        count = max(10, count)
             
         # Construct search query
         hashtag_query = " OR ".join([f"#{tag}" for tag in hashtags])
@@ -168,6 +171,9 @@ class TwitterAPIClient:
         """
         if count is None:
             count = self.default_tweet_count
+        
+        # Ensure minimum count for Twitter API
+        count = max(10, count)
             
         # Construct search query - wrap phrases in quotes for exact match
         keyword_query = " OR ".join([f'"{keyword}"' for keyword in keywords])
@@ -438,7 +444,7 @@ if __name__ == "__main__":
         print("✅ Twitter API client created successfully")
         
         # Test fetching some India-related tweets
-        test_tweets = fetch_india_related_tweets(count=5)
+        test_tweets = fetch_india_related_tweets(count=10)
         print(f"✅ Fetched {len(test_tweets)} test tweets")
         
         if test_tweets:
